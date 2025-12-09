@@ -2,6 +2,7 @@ import sys
 import os
 import shutil
 from selector import ImageSelector
+from collections import OrderedDict
 from image_loader import ImageLoaderWorker
 from PySide6.QtWidgets import (QApplication, QMainWindow, QListWidget, QListWidgetItem, 
                                QVBoxLayout, QWidget, QLabel, QPushButton, QFileDialog, 
@@ -103,7 +104,10 @@ class CullingApp(QMainWindow):
         self.current_dest_base = ""
         self.image_files = []
         self.selector = ImageSelector()
-        self.thumbnails_cache = {} # Guarda a imagem LIMPA original
+        self.thumbnails_cache = OrderedDict() # Guarda a imagem LIMPA original (LRU)
+        self.cache_limit = 200 # Limite de imagens em memória RAM
+        self.previews_cache = OrderedDict() # Cache para imagens grandes (720px)
+        self.preview_cache_limit = 20       # Limite seguro de 40MB
 
         # --- LAYOUT PRINCIPAL ---
         central_widget = QWidget()
@@ -297,7 +301,14 @@ class CullingApp(QMainWindow):
         self.filmstrip.setFocus()
 
     def add_thumbnail(self, path, pixmap):
-        self.thumbnails_cache[path] = pixmap # Guarda limpo
+        # Gerenciamento do Cache LRU
+        if path in self.thumbnails_cache:
+            self.thumbnails_cache.move_to_end(path) # Marca como usado recentemente
+        self.thumbnails_cache[path] = pixmap
+        
+        # Se estourar o limite, remove o mais antigo (o primeiro da fila)
+        if len(self.thumbnails_cache) > self.cache_limit:
+            self.thumbnails_cache.popitem(last=False)
         
         # Verifica se já tem nota salva no selector e aplica o desenho
         rating_atual = self.selector.get_rating(path)
@@ -311,7 +322,15 @@ class CullingApp(QMainWindow):
 
     def update_preview_slot(self, path, pixmap):
         """Recebe a imagem grande carregada pelo Worker e exibe."""
-        # Verifica se o item selecionado ainda é o mesmo (para evitar lag visual)
+        # 1. Guarda no Cache LRU
+        if path in self.previews_cache:
+            self.previews_cache.move_to_end(path)
+        self.previews_cache[path] = pixmap
+        
+        if len(self.previews_cache) > self.preview_cache_limit:
+            self.previews_cache.popitem(last=False)
+
+        # 2. Se for a foto que o usuário está olhando agora, exibe
         current = self.filmstrip.currentItem()
         if current and current.data(Qt.UserRole) == path:
             self.preview_frame.setPixmap(pixmap)
@@ -336,6 +355,14 @@ class CullingApp(QMainWindow):
         row = self.filmstrip.row(current)
         self.image_worker.update_position(row)
         
+        # Tenta carregar do cache instantaneamente
+        if path in self.previews_cache:
+            self.preview_frame.setPixmap(self.previews_cache[path])
+            self.previews_cache.move_to_end(path) # Renova a prioridade
+        else:
+            self.preview_frame.clear()
+            self.preview_frame.setText("Carregando...")
+
         self.lbl_status.setText(f"Vendo: {os.path.basename(path)}")
 
     def eventFilter(self, obj, event):
