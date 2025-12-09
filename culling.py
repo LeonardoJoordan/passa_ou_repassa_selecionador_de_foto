@@ -1,6 +1,7 @@
 import sys
 import os
 import shutil
+from image_viewer import ZoomablePreview
 from selector import ImageSelector
 from collections import OrderedDict
 from image_loader import ImageLoaderWorker
@@ -123,9 +124,9 @@ class CullingApp(QMainWindow):
         top_layout.setContentsMargins(0, 0, 0, 0)
 
         # 1.1 Preview (Esquerda)
-        self.preview_frame = QLabel("Nenhuma imagem selecionada")
-        self.preview_frame.setAlignment(Qt.AlignCenter)
-        self.preview_frame.setStyleSheet("background-color: #000; border: 1px solid #333; color: #555;")
+        self.preview_frame = ZoomablePreview()
+        self.preview_frame.setStyleSheet("background-color: #000; border: 1px solid #333;")
+        
         self.preview_frame.setMinimumSize(500, 400)
         
         # 1.2 Painel de Controle (Direita) - CORRIGIDO TEMA ESCURO
@@ -197,6 +198,18 @@ class CullingApp(QMainWindow):
         controls_layout.addWidget(self.lbl_status)
 
         top_layout.addWidget(self.preview_frame, 1)
+
+        # --- CONTROLES DE ZOOM ---
+        zoom_layout = QHBoxLayout()
+        self.btn_zoom_in = QPushButton("🔍+")
+        self.btn_zoom_out = QPushButton("🔍-")
+        self.estilizar_botao(self.btn_zoom_in, "#8e44ad") # Roxo
+        self.estilizar_botao(self.btn_zoom_out, "#8e44ad")
+        
+        zoom_layout.addWidget(self.btn_zoom_out)
+        zoom_layout.addWidget(self.btn_zoom_in)
+        controls_layout.addLayout(zoom_layout) # Adiciona no painel lateral
+
         top_layout.addWidget(controls_panel)
 
         # === 2. BLOCO DE BAIXO (Fita de Fotos) - CORRIGIDO LAYOUT ===
@@ -215,6 +228,7 @@ class CullingApp(QMainWindow):
             QListWidget::item:selected { background-color: #2980b9; border-radius: 5px; border: 2px solid #3498db;}
         """)
         self.filmstrip.installEventFilter(self)
+        self.preview_frame.installEventFilter(self)
 
         self.progress = QProgressBar()
         self.progress.setVisible(False)
@@ -232,6 +246,8 @@ class CullingApp(QMainWindow):
         self.btn_dest_base.clicked.connect(self.select_dest_base)
         self.btn_export.clicked.connect(self.export_files)
         self.filmstrip.currentItemChanged.connect(self.on_selection_changed)
+        self.btn_zoom_in.clicked.connect(lambda: self.preview_frame.zoom_in())
+        self.btn_zoom_out.clicked.connect(lambda: self.preview_frame.zoom_out())
 
         # Configuração do Novo Worker
         self.image_worker = ImageLoaderWorker()
@@ -359,6 +375,10 @@ class CullingApp(QMainWindow):
 
     def on_selection_changed(self, current, previous):
         if not current: return
+
+        # --- NOVO: Força sair do zoom ao trocar de foto ---
+        self.preview_frame.stop_zoom_mode()
+        # --------------------------------------------------
         
         # Scroll suave para centralizar
         self.filmstrip.scrollToItem(current, QAbstractItemView.PositionAtCenter)
@@ -380,11 +400,44 @@ class CullingApp(QMainWindow):
         self.lbl_status.setText(f"Vendo: {os.path.basename(path)}")
 
     def eventFilter(self, obj, event):
-        # Esse método intercepta eventos do filmstrip antes dele processar
-        if obj is self.filmstrip and event.type() == QEvent.KeyPress:
-            # Se nossa função processar a tecla, retornamos True (evento consumido)
+        is_target = (obj is self.filmstrip or obj is self.preview_frame)
+        
+        if is_target and event.type() == QEvent.KeyPress:
+            key = event.key()
+            
+            # 1. Lógica do Zoom (Tecla Z)
+            if event.text().lower() == 'z':
+                self.toggle_zoom_logic()
+                return True
+            
+            # 2. Lógica das Setas (O Guarda de Trânsito Blindado)
+            if key in (Qt.Key_Left, Qt.Key_Right, Qt.Key_Up, Qt.Key_Down):
+                
+                # CENÁRIO A: Tem Zoom -> Move a imagem
+                if self.preview_frame._is_zoomed:
+                    self.preview_frame.manual_scroll(key)
+                    return True 
+                
+                # CENÁRIO B: Não tem Zoom e o foco está na Imagem -> Navega na lista manualmente
+                # Isso evita chamar setFocus() durante um evento de tecla (o que causava o crash)
+                if obj is self.preview_frame:
+                    row = self.filmstrip.currentRow()
+                    count = self.filmstrip.count()
+                    
+                    if count > 0:
+                        if key in (Qt.Key_Left, Qt.Key_Up):
+                            row = max(0, row - 1)
+                        elif key in (Qt.Key_Right, Qt.Key_Down):
+                            row = min(count - 1, row + 1)
+                        
+                        self.filmstrip.setCurrentRow(row)
+                    
+                    return True # Importante: Dizemos ao Qt "Já resolvi, não faça mais nada"
+
+            # 3. Lógica das Notas (1-5)
             if self.process_rating_key(event):
                 return True
+                
         return super().eventFilter(obj, event)
 
     def process_rating_key(self, event):
@@ -422,6 +475,30 @@ class CullingApp(QMainWindow):
         # Removemos o bloco "if next_row < count..." para manter a seleção na foto atual.
         
         return True # Confirmamos que tratamos o evento
+    
+    def toggle_zoom_logic(self):
+        item = self.filmstrip.currentItem()
+        if not item: return
+
+        # SAIR DO ZOOM
+        if self.preview_frame._is_zoomed:
+            self.preview_frame.stop_zoom_mode()
+            self.lbl_status.setText(f"Vendo: {os.path.basename(item.data(Qt.UserRole))}")
+            self.filmstrip.setFocus()
+            return
+
+        # ENTRAR NO ZOOM
+        path = item.data(Qt.UserRole)
+        self.lbl_status.setText("Carregando Zoom HD...")
+        QApplication.processEvents()
+
+        full_pix = self.image_worker.get_full_resolution_image(path)
+        
+        if full_pix:
+            self.preview_frame.start_zoom_mode(full_pix)
+            self.lbl_status.setText("Modo Zoom: Use Scroll ou Botões")
+        else:
+            self.lbl_status.setText("Erro ao carregar zoom.")
 
     def export_files(self):
         # Validações

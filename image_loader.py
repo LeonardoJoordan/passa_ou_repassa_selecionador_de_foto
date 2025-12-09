@@ -180,3 +180,29 @@ class ImageLoaderWorker(QThread):
         w, h = current.width(), current.height()
         ratio = min(maximum.width() / w, maximum.height() / h)
         return QSize(int(w * ratio), int(h * ratio))
+    
+    def get_full_resolution_image(self, path):
+        """Método síncrono para buscar a imagem em resolução máxima (para Zoom)."""
+        try:
+            img = None
+            # 1. Tenta RAW
+            if path.lower().endswith(('.arw', '.cr2', '.nef', '.dng', '.orf')):
+                img = self._extract_raw_preview(path)
+                # Nota: Não redimensionamos aqui!
+            
+            # 2. Tenta JPG/PNG se não for RAW ou se RAW falhou
+            if img is None:
+                reader = QImageReader(path)
+                reader.setAutoTransform(True)
+                # Lê direto (sem setScaledSize)
+                img_data = reader.read()
+                if not img_data.isNull():
+                    img = img_data
+
+            if img and not img.isNull():
+                return QPixmap.fromImage(img)
+            return None
+
+        except Exception as e:
+            print(f"Erro zoom {path}: {e}")
+            return None
