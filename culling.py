@@ -198,18 +198,6 @@ class CullingApp(QMainWindow):
         controls_layout.addWidget(self.lbl_status)
 
         top_layout.addWidget(self.preview_frame, 1)
-
-        # --- CONTROLES DE ZOOM ---
-        zoom_layout = QHBoxLayout()
-        self.btn_zoom_in = QPushButton("🔍+")
-        self.btn_zoom_out = QPushButton("🔍-")
-        self.estilizar_botao(self.btn_zoom_in, "#8e44ad") # Roxo
-        self.estilizar_botao(self.btn_zoom_out, "#8e44ad")
-        
-        zoom_layout.addWidget(self.btn_zoom_out)
-        zoom_layout.addWidget(self.btn_zoom_in)
-        controls_layout.addLayout(zoom_layout) # Adiciona no painel lateral
-
         top_layout.addWidget(controls_panel)
 
         # === 2. BLOCO DE BAIXO (Fita de Fotos) - CORRIGIDO LAYOUT ===
@@ -246,8 +234,6 @@ class CullingApp(QMainWindow):
         self.btn_dest_base.clicked.connect(self.select_dest_base)
         self.btn_export.clicked.connect(self.export_files)
         self.filmstrip.currentItemChanged.connect(self.on_selection_changed)
-        self.btn_zoom_in.clicked.connect(lambda: self.preview_frame.zoom_in())
-        self.btn_zoom_out.clicked.connect(lambda: self.preview_frame.zoom_out())
 
         # Configuração do Novo Worker
         self.image_worker = ImageLoaderWorker()

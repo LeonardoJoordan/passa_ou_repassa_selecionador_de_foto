@@ -1,6 +1,6 @@
-from PySide6.QtWidgets import QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QFrame
+from PySide6.QtWidgets import QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QFrame, QPushButton
 from PySide6.QtCore import Qt, QRectF
-from PySide6.QtGui import QPixmap, QPainter, QWheelEvent
+from PySide6.QtGui import QPixmap, QPainter, QWheelEvent, QCursor
 
 class ZoomablePreview(QGraphicsView):
     def __init__(self, parent=None):
@@ -8,99 +8,142 @@ class ZoomablePreview(QGraphicsView):
         self.scene = QGraphicsScene(self)
         self.setScene(self.scene)
         
-        # 1. ALINHAMENTO E VISUAL
-        self.setAlignment(Qt.AlignCenter) # Garante centro quando a imagem é menor que a tela
+        # 1. SETUP BÁSICO
+        self.setAlignment(Qt.AlignCenter)
         self.setFrameShape(QFrame.NoFrame)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setStyleSheet("background: transparent;")
         
-        # 2. CONFIGURAÇÃO DE ZOOM
         self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
         self.setResizeAnchor(QGraphicsView.AnchorUnderMouse)
         self.setDragMode(QGraphicsView.NoDrag)
         self.setRenderHint(QPainter.Antialiasing, False)
         self.setRenderHint(QPainter.SmoothPixmapTransform, True)
         
-        # Estado
         self.pixmap_item = QGraphicsPixmapItem()
         self.scene.addItem(self.pixmap_item)
-        self.current_pixmap = None # Guarda a versão leve (720px)
+        self.current_pixmap = None
         self._is_zoomed = False
 
+        # --- 2. BOTÕES DE OVERLAY (A novidade) ---
+        # Criamos botões filhos de 'self' para flutuarem por cima
+        self.btn_plus = QPushButton("+", self)
+        self.btn_minus = QPushButton("-", self)
+
+        # Impede que os botões roubem o foco do teclado ao serem clicados
+        self.btn_plus.setFocusPolicy(Qt.NoFocus)
+        self.btn_minus.setFocusPolicy(Qt.NoFocus)
+        # -------------------------
+        
+        # Estilo "Glass" (Semi-transparente e moderno)
+        style = """
+            QPushButton {
+                background-color: rgba(0, 0, 0, 150);
+                color: white;
+                border-radius: 15px;
+                font-weight: bold;
+                font-size: 16px;
+                border: 1px solid #555;
+            }
+            QPushButton:hover { background-color: rgba(41, 128, 185, 200); }
+            QPushButton:pressed { background-color: white; color: black; }
+        """
+        self.btn_plus.setStyleSheet(style)
+        self.btn_minus.setStyleSheet(style)
+        
+        # Tamanho fixo
+        self.btn_plus.setFixedSize(30, 30)
+        self.btn_minus.setFixedSize(30, 30)
+        
+        # Cursor de mão para indicar que é clicável
+        self.btn_plus.setCursor(QCursor(Qt.ArrowCursor))
+        self.btn_minus.setCursor(QCursor(Qt.ArrowCursor))
+
+        # Conexões internas
+        self.btn_plus.clicked.connect(self.zoom_in)
+        self.btn_minus.clicked.connect(self.zoom_out)
+
+        # Começam invisíveis
+        self.btn_plus.hide()
+        self.btn_minus.hide()
+
     def setPixmap(self, pixmap):
-        """Modo 'Fit': Chamado ao trocar de foto ou carregar preview."""
         self.current_pixmap = pixmap
         self._is_zoomed = False
-        
-        # --- O SEGREDO DO RESET ---
-        self.resetTransform() # 1. Remove qualquer zoom anterior
+        self.resetTransform()
         self.pixmap_item.setPixmap(pixmap)
-        
-        # 2. Redefine o tamanho do palco para o tamanho exato da imagem nova
         rect = QRectF(pixmap.rect())
         self.scene.setSceneRect(rect)
-        
-        # 3. Trava o movimento e ajusta
         self.setDragMode(QGraphicsView.NoDrag)
         self.fitInView(self.pixmap_item, Qt.KeepAspectRatio)
+        
+        # Garante que botões sumam ao trocar de foto
+        self.btn_plus.hide()
+        self.btn_minus.hide()
 
     def clear(self):
         self.pixmap_item.setPixmap(QPixmap())
         self.current_pixmap = None
+        self.btn_plus.hide()
+        self.btn_minus.hide()
 
     def setText(self, text):
         if text: self.clear()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        # Se redimensionar a janela e NÃO estiver em zoom, reajusta o Fit
         if not self._is_zoomed and self.current_pixmap:
             self.fitInView(self.pixmap_item, Qt.KeepAspectRatio)
+            
+        # --- 3. POSICIONAMENTO DINÂMICO ---
+        # Mantém os botões no canto inferior direito
+        margin = 10
+        btn_w = 30
+        
+        # Posição X (Largura total - margem - tamanho do botão)
+        x_pos = self.width() - btn_w - margin
+        
+        # Posição Y (Altura total - margem - tamanho do botão)
+        y_pos_plus = self.height() - btn_w - margin - 40 # Mais pra cima
+        y_pos_minus = self.height() - btn_w - margin     # Mais pra baixo
+        
+        self.btn_plus.move(x_pos, y_pos_plus)
+        self.btn_minus.move(x_pos, y_pos_minus)
 
     def start_zoom_mode(self, full_res_pixmap):
-        """Entra no modo de Zoom com a imagem HD."""
         self._is_zoomed = True
-        
-        # 1. Limpa transformações anteriores
         self.resetTransform()
-        
-        # 2. Coloca a imagem HD
         if full_res_pixmap:
             self.pixmap_item.setPixmap(full_res_pixmap)
-            # Atualiza o tamanho do palco para o tamanho da imagem HD
             self.scene.setSceneRect(QRectF(full_res_pixmap.rect()))
         
-        # 3. Habilita a 'mãozinha'
         self.setDragMode(QGraphicsView.ScrollHandDrag)
-        
-        # 4. O AJUSTE DE OURO: Centraliza a câmera na imagem
         self.centerOn(self.pixmap_item)
+        
+        # MOSTRAR OS BOTÕES
+        self.btn_plus.show()
+        self.btn_minus.show()
 
     def stop_zoom_mode(self):
-        """Sai do modo zoom e volta para a thumb leve."""
-        # Se já estiver fora do zoom, ignora para não piscar
-        if not self._is_zoomed: 
-            return
-
+        if not self._is_zoomed: return
         self._is_zoomed = False
-        self.resetTransform() # ZERA O ZOOM
-        
-        # Restaura a imagem leve
+        self.resetTransform()
         if self.current_pixmap:
             self.pixmap_item.setPixmap(self.current_pixmap)
             self.scene.setSceneRect(QRectF(self.current_pixmap.rect()))
             self.fitInView(self.pixmap_item, Qt.KeepAspectRatio)
-        
         self.setDragMode(QGraphicsView.NoDrag)
+        
+        # ESCONDER OS BOTÕES
+        self.btn_plus.hide()
+        self.btn_minus.hide()
 
     def zoom_in(self):
-        if self._is_zoomed:
-            self.scale(1.2, 1.2)
+        if self._is_zoomed: self.scale(1.2, 1.2)
 
     def zoom_out(self):
-        if self._is_zoomed:
-            self.scale(0.8, 0.8)
+        if self._is_zoomed: self.scale(0.8, 0.8)
 
     def wheelEvent(self, event: QWheelEvent):
         if self._is_zoomed:
@@ -108,14 +151,13 @@ class ZoomablePreview(QGraphicsView):
             self.scale(factor, factor)
             event.accept()
         else:
-            # Ignora scroll se não estiver em zoom
             event.ignore()
 
     def manual_scroll(self, key):
         """Move a visão manualmente usando as setas."""
         if not self._is_zoomed: return
         
-        step = 50 # Quantidade de pixels para mover
+        step = 50 # Velocidade do scroll
         h_bar = self.horizontalScrollBar()
         v_bar = self.verticalScrollBar()
 
