@@ -197,6 +197,37 @@ class CullingApp(QMainWindow):
         controls_layout.addWidget(self.btn_export)
         controls_layout.addWidget(self.lbl_status)
 
+        # --- BARRA DE FILTROS (SMART FILTERS) ---
+        self.active_filters = set() # Conjunto vazio = Mostrar tudo
+        
+        filters_widget = QWidget()
+        filters_widget.setStyleSheet("background: transparent;")
+        filters_layout = QHBoxLayout(filters_widget)
+        filters_layout.setContentsMargins(0, 10, 0, 0) # Margem superior para separar
+        filters_layout.setSpacing(5)
+
+        # Botão TUDO
+        self.btn_filter_all = QPushButton("Tudo")
+        self.btn_filter_all.setCheckable(True)
+        self.btn_filter_all.setFixedHeight(30)
+        self.btn_filter_all.clicked.connect(self.reset_filters)
+        filters_layout.addWidget(self.btn_filter_all)
+
+        # Botões Numéricos (0 a 5)
+        self.filter_buttons = {}
+        for i in range(6):
+            btn = QPushButton(str(i))
+            btn.setCheckable(True)
+            btn.setFixedSize(30, 30)
+            # Lambda com 'val=i' para capturar o valor correto no loop
+            btn.clicked.connect(lambda checked, val=i: self.toggle_filter(val))
+            self.filter_buttons[i] = btn
+            filters_layout.addWidget(btn)
+
+        controls_layout.addWidget(filters_widget)
+        self.update_filter_visuals() # Define as cores iniciais
+        # ----------------------------------------
+
         top_layout.addWidget(self.preview_frame, 1)
         top_layout.addWidget(controls_panel)
 
@@ -457,8 +488,8 @@ class CullingApp(QMainWindow):
             pix_novo = self.selector.apply_overlay(pix_limpo, novo_rating)
             current_item.setIcon(QIcon(pix_novo))
 
-        # 3. AUTO-AVANÇO REMOVIDO
-        # Removemos o bloco "if next_row < count..." para manter a seleção na foto atual.
+        # 3. Revalida se a foto ainda deve aparecer na tela
+        self.apply_filters()
         
         return True # Confirmamos que tratamos o evento
     
@@ -485,6 +516,62 @@ class CullingApp(QMainWindow):
             self.lbl_status.setText("Modo Zoom: Use Scroll ou Botões")
         else:
             self.lbl_status.setText("Erro ao carregar zoom.")
+
+    # --- LÓGICA DE FILTROS ---
+
+    def toggle_filter(self, rating):
+        """Adiciona ou remove uma nota do filtro."""
+        if rating in self.active_filters:
+            self.active_filters.remove(rating)
+        else:
+            self.active_filters.add(rating)
+        
+        self.update_filter_visuals()
+        self.apply_filters()
+
+    def reset_filters(self):
+        """Botão TUDO: Limpa os filtros específicos."""
+        self.active_filters.clear()
+        self.update_filter_visuals()
+        self.apply_filters()
+
+    def update_filter_visuals(self):
+        """Gerencia as cores (Verde = Ativo, Cinza = Inativo)."""
+        is_empty = (len(self.active_filters) == 0)
+        
+        # Estilos
+        style_active = "background-color: #27ae60; color: white; border: none; font-weight: bold; border-radius: 4px;"
+        style_inactive = "background-color: #34495e; color: #bdc3c7; border: 1px solid #5d6d7e; border-radius: 4px;"
+
+        # Botão Tudo (Verde se a lista estiver vazia)
+        self.btn_filter_all.setStyleSheet(style_active if is_empty else style_inactive)
+        self.btn_filter_all.setChecked(is_empty)
+
+        # Botões Numéricos
+        for i, btn in self.filter_buttons.items():
+            is_selected = i in self.active_filters
+            btn.setStyleSheet(style_active if is_selected else style_inactive)
+            btn.setChecked(is_selected)
+
+    def apply_filters(self):
+        """Aplica a visibilidade na Fita de Fotos."""
+        count = self.filmstrip.count()
+        
+        # Se vazio, mostra tudo (Otimização)
+        if not self.active_filters:
+            for i in range(count):
+                self.filmstrip.item(i).setHidden(False)
+            return
+
+        # Filtra item por item
+        for i in range(count):
+            item = self.filmstrip.item(i)
+            path = item.data(Qt.UserRole)
+            rating = self.selector.get_rating(path) # Pega a nota real
+            
+            # Se a nota estiver no conjunto, mostra. Senão, esconde.
+            should_show = rating in self.active_filters
+            item.setHidden(not should_show)
 
     def export_files(self):
         # Validações
