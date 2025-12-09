@@ -239,6 +239,20 @@ class CullingApp(QMainWindow):
         self.image_worker.signals.preview_loaded.connect(self.update_preview_slot)
         self.image_worker.start()
 
+    def closeEvent(self, event):
+        """Garante que a Thread morra ao fechar a janela."""
+        try:
+            # Pára o worker de imagens
+            if hasattr(self, "image_worker") and self.image_worker.isRunning():
+                self.image_worker.stop()
+            
+            # Pára o worker de cópia se estiver rodando (opcional, mas seguro)
+            if hasattr(self, "copy_thread") and self.copy_thread.isRunning():
+                self.copy_thread.terminate() # Força parada pois cópia é bloqueante
+        except Exception as e:
+            print(f"Erro ao fechar: {e}")
+            
+        super().closeEvent(event)
 
     def estilizar_botao(self, btn, cor):
         btn.setStyleSheet(f"""
