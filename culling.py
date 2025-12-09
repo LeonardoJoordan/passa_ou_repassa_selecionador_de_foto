@@ -206,11 +206,10 @@ class CullingApp(QMainWindow):
         filters_layout.setContentsMargins(0, 10, 0, 0) # Margem superior para separar
         filters_layout.setSpacing(5)
 
-        # Botão TUDO
-        self.btn_filter_all = QPushButton("Tudo")
-        self.btn_filter_all.setCheckable(True)
+        # Botão TUDO / CLASSIFICADAS (Toggle Dinâmico)
+        self.btn_filter_all = QPushButton("Tudo") 
         self.btn_filter_all.setFixedHeight(30)
-        self.btn_filter_all.clicked.connect(self.reset_filters)
+        self.btn_filter_all.clicked.connect(self.toggle_main_filter) 
         filters_layout.addWidget(self.btn_filter_all)
 
         # Botões Numéricos (0 a 5)
@@ -490,6 +489,7 @@ class CullingApp(QMainWindow):
 
         # 3. Revalida se a foto ainda deve aparecer na tela
         self.apply_filters()
+        self.update_filter_visuals()
         
         return True # Confirmamos que tratamos o evento
     
@@ -529,28 +529,57 @@ class CullingApp(QMainWindow):
         self.update_filter_visuals()
         self.apply_filters()
 
-    def reset_filters(self):
-        """Botão TUDO: Limpa os filtros específicos."""
-        self.active_filters.clear()
+    def toggle_main_filter(self):
+        """Lógica inteligente: Tudo <-> Classificadas."""
+        # Verifica se existe ALGUMA foto com nota no sistema
+        tem_classificadas = any(r > 0 for r in self.selector.get_selected_items().values())
+
+        if not self.active_filters:
+            # Estamos vendo "Tudo".
+            # Se tiver fotos classificadas, o botão dizia "Classificadas", então filtramos 1-5.
+            if tem_classificadas:
+                self.active_filters = {1, 2, 3, 4, 5}
+            # Se não tem classificadas, o botão dizia "Tudo", então não faz nada (já está em tudo).
+        else:
+            # Estamos filtrando algo. O botão dizia "Tudo" (Reset). Limpamos o filtro.
+            self.active_filters.clear()
+        
         self.update_filter_visuals()
         self.apply_filters()
 
     def update_filter_visuals(self):
-        """Gerencia as cores (Verde = Ativo, Cinza = Inativo)."""
+        """Atualiza texto e cor: Classificadas (Verde) / Tudo (Laranja)."""
         is_empty = (len(self.active_filters) == 0)
         
+        # Verifica se existe ALGUMA foto com nota > 0
+        tem_classificadas = any(r > 0 for r in self.selector.get_selected_items().values())
+        
         # Estilos
-        style_active = "background-color: #27ae60; color: white; border: none; font-weight: bold; border-radius: 4px;"
-        style_inactive = "background-color: #34495e; color: #bdc3c7; border: 1px solid #5d6d7e; border-radius: 4px;"
+        style_green = "background-color: #27ae60; color: white; border: none; font-weight: bold; border-radius: 4px;"
+        style_gray = "background-color: #34495e; color: #bdc3c7; border: 1px solid #5d6d7e; border-radius: 4px;"
+        style_orange = "background-color: #e67e22; color: white; border: none; font-weight: bold; border-radius: 4px;"
 
-        # Botão Tudo (Verde se a lista estiver vazia)
-        self.btn_filter_all.setStyleSheet(style_active if is_empty else style_inactive)
-        self.btn_filter_all.setChecked(is_empty)
+        # Lógica do Botão Principal
+        if is_empty:
+            # Sem filtro ativo (Vendo todas as imagens)
+            if tem_classificadas:
+                # Tem notas? Botão vira "Classificadas" -> Fica VERDE
+                self.btn_filter_all.setText("Classificadas")
+                self.btn_filter_all.setStyleSheet(style_green)
+            else:
+                # Não tem notas? Botão fica "Tudo" -> Fica LARANJA (Correção Solicitada)
+                self.btn_filter_all.setText("Tudo")
+                self.btn_filter_all.setStyleSheet(style_orange)
+        else:
+            # Com filtro ativo.
+            # Botão vira Reset ("Tudo") -> Fica LARANJA
+            self.btn_filter_all.setText("Tudo")
+            self.btn_filter_all.setStyleSheet(style_orange)
 
-        # Botões Numéricos
+        # Botões Numéricos (Mantém Verde se ativo, Cinza se inativo)
         for i, btn in self.filter_buttons.items():
             is_selected = i in self.active_filters
-            btn.setStyleSheet(style_active if is_selected else style_inactive)
+            btn.setStyleSheet(style_green if is_selected else style_gray)
             btn.setChecked(is_selected)
 
     def apply_filters(self):
@@ -574,11 +603,31 @@ class CullingApp(QMainWindow):
             item.setHidden(not should_show)
 
     def export_files(self):
-        # Validações
-        selected_items = self.selector.get_selected_items() # Pega do selector novo
+        # 1. Recupera TUDO que tem nota
+        all_rated_items = self.selector.get_selected_items()
+        
+        # 2. APLICA A LÓGICA DO FILTRO NA EXPORTAÇÃO
+        if self.active_filters:
+            # Se tiver filtro ativo, pegamos apenas o que coincide
+            selected_items = {
+                path: rating 
+                for path, rating in all_rated_items.items() 
+                if rating in self.active_filters
+            }
+        else:
+            # Se o filtro estiver vazio (Modo "Tudo"), exporta tudo que tem nota
+            selected_items = all_rated_items
+
+        # 3. Validações Padrão
         if not selected_items:
-            QMessageBox.warning(self, "Ops", "Nenhuma foto selecionada!")
+            # Mensagem personalizada dependendo do contexto
+            if self.active_filters:
+                msg = "Nenhuma foto com essa classificação foi encontrada!"
+            else:
+                msg = "Nenhuma foto classificada para exportar!"
+            QMessageBox.warning(self, "Ops", msg)
             return
+
         if not self.current_dest_base:
             QMessageBox.warning(self, "Ops", "Selecione a Pasta de Saída!")
             return
