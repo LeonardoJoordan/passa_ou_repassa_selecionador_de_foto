@@ -8,3 +8,7 @@ Thumbs.db
 build
 instalador.iss
 Setup_PassaOuRepassa_3.1.exe
+culling.dist
+culling.build
+culling.onefile-build
+culling.exe

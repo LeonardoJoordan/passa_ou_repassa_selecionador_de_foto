@@ -1,6 +1,7 @@
 import sys
 import os
 import shutil
+import numpy as np
 from image_viewer import ZoomablePreview
 from selector import ImageSelector
 from collections import OrderedDict
