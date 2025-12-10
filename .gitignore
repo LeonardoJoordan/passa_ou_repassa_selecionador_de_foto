@@ -6,3 +6,5 @@ __pycache__/
 Thumbs.db
 .venv/
 build
+instalador.iss
+Setup_PassaOuRepassa_3.1.exe
