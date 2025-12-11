@@ -1,7 +1,7 @@
 import os
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel,
-    QPushButton, QComboBox, QCheckBox, QGroupBox,
+    QPushButton, QCheckBox, QGroupBox,
     QSpinBox, QSpacerItem, QSizePolicy, QFrame
 )
 from PySide6.QtCore import Qt, QSettings
@@ -160,10 +160,10 @@ class SettingsDialog(QDialog):
 
         # CABEÇALHO
         header_layout = QVBoxLayout()
-        lbl_title = QLabel("Configurações do Processamento")
+        lbl_title = QLabel("Correção e Exportação")
         lbl_title.setObjectName("HeaderTitle")
 
-        lbl_subtitle = QLabel("Ajuste o motor de edição, correções automáticas e parâmetros de exportação.")
+        lbl_subtitle = QLabel("Ajuste sua configuração para exportação da mídia.")
         lbl_subtitle.setObjectName("HeaderSubtitle")
         lbl_subtitle.setWordWrap(True)
 
@@ -171,58 +171,30 @@ class SettingsDialog(QDialog):
         header_layout.addWidget(lbl_subtitle)
         main_layout.addLayout(header_layout)
 
-        # Linha separadora
         line = QFrame()
         line.setObjectName("line")
         line.setFrameShape(QFrame.HLine)
         line.setFrameShadow(QFrame.Sunken)
         main_layout.addWidget(line)
 
-        # 1. SELEÇÃO DO MOTOR
-        row_engine = QHBoxLayout()
-
-        lbl_engine = QLabel("Motor para edição:")
-        lbl_engine.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-
-        self.combo_engine = QComboBox()
-        self.combo_engine.addItems(["[ Sem edição ]", "RawTherapee", "Darktable", "ImageMagick"])
-        self.combo_engine.currentIndexChanged.connect(self.on_engine_changed)
-
-
-        row_engine.addWidget(lbl_engine)
-        row_engine.addStretch()
-        row_engine.addWidget(self.combo_engine)
-
-        main_layout.addLayout(row_engine)
+        # [REMOVIDO] SELEÇÃO DO MOTOR (Agora é automático)
 
         # 2. GRUPO: AJUSTES AUTOMÁTICOS
-        grp_auto = QGroupBox("Correção de Imagem (Automático)")
+        # Definimos o título fixo, já que só existe um motor
+        grp_auto = QGroupBox("Correção de Imagem (ImageMagick)")
         self.grp_auto = grp_auto
+        self.grp_auto.setEnabled(True) # Sempre ativo
+        
         layout_auto = QVBoxLayout(grp_auto)
         layout_auto.setSpacing(8)
 
         # 2.1 Full Auto
-        self.chk_full_auto = QCheckBox("Full Auto (Ajuste Completo)")
-        self.chk_full_auto.toggled.connect(self.on_full_auto_toggled)
+        self.chk_full_auto = QCheckBox("Correção automática")
         layout_auto.addWidget(self.chk_full_auto)
 
-        # 2.2 Itens Granulares
+        # 2.2 Itens Granulares (Visualmente presentes, mas desativados para o IM)
         layout_subs = QHBoxLayout()
-        layout_subs.setContentsMargins(18, 0, 0, 0)  # Indentação visual
-
-        self.chk_exposure = QCheckBox("Exposição")
-        self.chk_shadows = QCheckBox("Sombras")
-        self.chk_highlights = QCheckBox("Realces")
-
-        # Estados manuais "lembrados" para quando sair do Full Auto
-        self._prev_exposure = False
-        self._prev_shadows = False
-        self._prev_highlights = False
-
-        layout_subs.addWidget(self.chk_exposure)
-        layout_subs.addWidget(self.chk_shadows)
-        layout_subs.addWidget(self.chk_highlights)
-        layout_subs.addStretch()
+        layout_subs.setContentsMargins(18, 0, 0, 0)        
 
         layout_auto.addLayout(layout_subs)
 
@@ -270,8 +242,6 @@ class SettingsDialog(QDialog):
 
         main_layout.addWidget(grp_props)
 
-        self.on_engine_changed(self.combo_engine.currentIndex())
-
         # Espaço antes dos botões
         main_layout.addStretch()
 
@@ -297,139 +267,39 @@ class SettingsDialog(QDialog):
 
     # --- LÓGICA DE INTERFACE ---
 
-    def on_full_auto_toggled(self, checked):
-        """Gerencia o travamento dos botões manuais com base no Full Auto E no Motor."""
-        engine_name = self.combo_engine.currentText()
-        is_imagemagick = (engine_name == "ImageMagick")
-
-        if checked:
-            # Se Full Auto está LIGADO:
-            # Salva o estado anterior (apenas se não for ImageMagick, pois ele não tem estado manual válido)
-            if not is_imagemagick:
-                self._prev_exposure = self.chk_exposure.isChecked()
-                self._prev_shadows = self.chk_shadows.isChecked()
-                self._prev_highlights = self.chk_highlights.isChecked()
-
-            # Marca tudo visualmente
-            self.chk_exposure.setChecked(True)
-            self.chk_shadows.setChecked(True)
-            self.chk_highlights.setChecked(True)
-
-            # Trava tudo
-            self.chk_exposure.setEnabled(False)
-            self.chk_shadows.setEnabled(False)
-            self.chk_highlights.setEnabled(False)
-            
-        else:
-            # Se Full Auto está DESLIGADO:
-            
-            if is_imagemagick:
-                # SE FOR IMAGEMAGICK: MANTÉM TUDO TRAVADO E DESMARCADO
-                # (Pois ele não suporta ajuste manual)
-                self.chk_exposure.setEnabled(False)
-                self.chk_shadows.setEnabled(False)
-                self.chk_highlights.setEnabled(False)
-                
-                self.chk_exposure.setChecked(False)
-                self.chk_shadows.setChecked(False)
-                self.chk_highlights.setChecked(False)
-            
-            else:
-                # SE FOR OUTRO MOTOR (RawTherapee/Darktable): LIBERA OS CONTROLES
-                self.chk_exposure.setEnabled(True)
-                self.chk_shadows.setEnabled(True)
-                self.chk_highlights.setEnabled(True)
-
-                # Restaura o estado anterior (memória)
-                self.chk_exposure.setChecked(self._prev_exposure)
-                self.chk_shadows.setChecked(self._prev_shadows)
-                self.chk_highlights.setChecked(self._prev_highlights)
-
     def on_resize_toggled(self, checked):
         self.spin_resize.setEnabled(checked)
 
     def on_quality_toggled(self, checked):
         self.spin_quality.setEnabled(checked)
 
-    def on_engine_changed(self, index):
-        """Define o que está disponível baseada na competência de cada motor."""
-        engine_name = self.combo_engine.itemText(index)
-        
-        # 1. Configura a disponibilidade dos grupos
-        if engine_name == "[ Sem edição ]":
-            self.grp_auto.setEnabled(False)
-            self.grp_props.setEnabled(False)
-        
-        elif engine_name == "ImageMagick":
-            self.grp_props.setEnabled(True)
-            self.grp_auto.setEnabled(True)
-            self.grp_auto.setTitle("Correção (ImageMagick: Apenas Full Auto)")
-            
-        elif engine_name in ["RawTherapee", "Darktable"]:
-            self.grp_props.setEnabled(True)
-            self.grp_auto.setEnabled(True)
-            self.grp_auto.setTitle("Correção de Imagem (Automático)")
-
-        # 2. Força a atualização visual dos checkboxes chamando a lógica do toggle
-        # Isso garante que se mudarmos de RawTherapee para ImageMagick,
-        # os botões manuais sejam travados imediatamente.
-        if self.grp_auto.isEnabled():
-            self.on_full_auto_toggled(self.chk_full_auto.isChecked())
-
-
     # --- PERSISTÊNCIA ---
 
     def load_settings(self):
-        # 1. Engine
-        self.combo_engine.setCurrentIndex(
-            self.settings.value("engine_index", 0, type=int)
-        )
-
         # 2. Auto
         is_full_auto = self.settings.value("full_auto", False, type=bool)
-
-        # Carrega primeiro os valores individuais
-        self.chk_exposure.setChecked(self.settings.value("auto_exposure", False, type=bool))
-        self.chk_shadows.setChecked(self.settings.value("auto_shadows", False, type=bool))
-        self.chk_highlights.setChecked(self.settings.value("auto_highlights", False, type=bool))
-
-        # Guarda esse estado como "manual" padrão
-        self._prev_exposure = self.chk_exposure.isChecked()
-        self._prev_shadows = self.chk_shadows.isChecked()
-        self._prev_highlights = self.chk_highlights.isChecked()
-
-        # Por último aplica o Full Auto (vai chamar on_full_auto_toggled)
         self.chk_full_auto.setChecked(is_full_auto)
+        
 
-        # 3. Resize
+        # 3. Resize e 4. Qualidade (Mantém igual)
         has_resize = self.settings.value("use_resize", False, type=bool)
         self.chk_resize.setChecked(has_resize)
-        self.spin_resize.setValue(
-            self.settings.value("resize_value", 1920, type=int)
-        )
+        self.spin_resize.setValue(self.settings.value("resize_value", 1920, type=int))
 
-        # 4. Qualidade
         has_quality = self.settings.value("use_quality", False, type=bool)
         self.chk_quality.setChecked(has_quality)
-        self.spin_quality.setValue(
-            self.settings.value("quality_value", 75, type=int)
-        )
+        self.spin_quality.setValue(self.settings.value("quality_value", 75, type=int))
+        
 
     def save_and_close(self):
-        # 1. Engine
-        self.settings.setValue("engine_index", self.combo_engine.currentIndex())
-
         # 2. Auto
         self.settings.setValue("full_auto", self.chk_full_auto.isChecked())
-        self.settings.setValue("auto_exposure", self.chk_exposure.isChecked())
-        self.settings.setValue("auto_shadows", self.chk_shadows.isChecked())
-        self.settings.setValue("auto_highlights", self.chk_highlights.isChecked())
-
-        # 3. Resize
+        # Não salvamos exposure/shadows pois não são usados no IM
+        
+        # 3. Resize e 4. Qualidade (Mantém igual)
         self.settings.setValue("use_resize", self.chk_resize.isChecked())
         self.settings.setValue("resize_value", self.spin_resize.value())
 
-        # 4. Qualidade
         self.settings.setValue("use_quality", self.chk_quality.isChecked())
         self.settings.setValue("quality_value", self.spin_quality.value())
 

@@ -676,25 +676,31 @@ class CullingApp(QMainWindow):
         self.log(f"🚀 Iniciando processamento para: {final_path}")
 
         # --- NOVA LÓGICA DE CAPTURA DE SETTINGS ---
+        # --- LÓGICA AUTOMÁTICA DE MOTOR ---
         qs = QSettings("LeonardoSoft", "SelecionadorFotos")
         
-        # Mapeia o índice do combo box para nomes reais
-        engines = ["[ Sem edição ]", "RawTherapee", "Darktable", "ImageMagick"]
-        idx = qs.value("engine_index", 0, type=int)
-        engine_name = engines[idx] if 0 <= idx < len(engines) else "[ Sem edição ]"
+        full_auto = qs.value("full_auto", False, type=bool)
+        use_resize = qs.value("use_resize", False, type=bool)
+        use_quality = qs.value("use_quality", False, type=bool)
+        
+        # DECISÃO: Se tiver QUALQUER ajuste ativado, usamos o ImageMagick.
+        # Caso contrário, usamos '[ Sem edição ]' para cópia rápida.
+        if full_auto or use_resize or use_quality:
+            engine_name = "ImageMagick"
+        else:
+            engine_name = "[ Sem edição ]"
 
         settings_dict = {
             "engine_name": engine_name,
-            "full_auto": qs.value("full_auto", False, type=bool),
-            "use_resize": qs.value("use_resize", False, type=bool),
+            "full_auto": full_auto,
+            "use_resize": use_resize,
             "resize_value": qs.value("resize_value", 1920, type=int),
-            "use_quality": qs.value("use_quality", False, type=bool),
+            "use_quality": use_quality,
             "quality_value": qs.value("quality_value", 75, type=int),
-            # Adicione outros campos conforme necessário (ex: exposição)
         }
         
-        self.log(f"⚙️ Motor Selecionado: {engine_name}")
-        # -------------------------------------------
+        self.log(f"⚙️ Modo de Exportação: {engine_name}")
+        # ----------------------------------
 
         # Passamos o dicionário para o Worker
         self.copy_thread = CopyWorker(selected_items, final_path, settings_dict)
