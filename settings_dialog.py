@@ -298,31 +298,52 @@ class SettingsDialog(QDialog):
     # --- LÓGICA DE INTERFACE ---
 
     def on_full_auto_toggled(self, checked):
-        """Se Full Auto estiver marcado, bloqueia e marca os outros."""
-        if checked:
-            # Guarda o estado atual (manual) antes de forçar tudo ligado
-            self._prev_exposure = self.chk_exposure.isChecked()
-            self._prev_shadows = self.chk_shadows.isChecked()
-            self._prev_highlights = self.chk_highlights.isChecked()
+        """Gerencia o travamento dos botões manuais com base no Full Auto E no Motor."""
+        engine_name = self.combo_engine.currentText()
+        is_imagemagick = (engine_name == "ImageMagick")
 
-            # Full Auto ativa tudo e trava os controles manuais
+        if checked:
+            # Se Full Auto está LIGADO:
+            # Salva o estado anterior (apenas se não for ImageMagick, pois ele não tem estado manual válido)
+            if not is_imagemagick:
+                self._prev_exposure = self.chk_exposure.isChecked()
+                self._prev_shadows = self.chk_shadows.isChecked()
+                self._prev_highlights = self.chk_highlights.isChecked()
+
+            # Marca tudo visualmente
             self.chk_exposure.setChecked(True)
             self.chk_shadows.setChecked(True)
             self.chk_highlights.setChecked(True)
 
+            # Trava tudo
             self.chk_exposure.setEnabled(False)
             self.chk_shadows.setEnabled(False)
             self.chk_highlights.setEnabled(False)
+            
         else:
-            # Saiu do Full Auto: libera os controles manuais
-            self.chk_exposure.setEnabled(True)
-            self.chk_shadows.setEnabled(True)
-            self.chk_highlights.setEnabled(True)
+            # Se Full Auto está DESLIGADO:
+            
+            if is_imagemagick:
+                # SE FOR IMAGEMAGICK: MANTÉM TUDO TRAVADO E DESMARCADO
+                # (Pois ele não suporta ajuste manual)
+                self.chk_exposure.setEnabled(False)
+                self.chk_shadows.setEnabled(False)
+                self.chk_highlights.setEnabled(False)
+                
+                self.chk_exposure.setChecked(False)
+                self.chk_shadows.setChecked(False)
+                self.chk_highlights.setChecked(False)
+            
+            else:
+                # SE FOR OUTRO MOTOR (RawTherapee/Darktable): LIBERA OS CONTROLES
+                self.chk_exposure.setEnabled(True)
+                self.chk_shadows.setEnabled(True)
+                self.chk_highlights.setEnabled(True)
 
-            # Restaura como o usuário tinha deixado antes do Full Auto
-            self.chk_exposure.setChecked(self._prev_exposure)
-            self.chk_shadows.setChecked(self._prev_shadows)
-            self.chk_highlights.setChecked(self._prev_highlights)
+                # Restaura o estado anterior (memória)
+                self.chk_exposure.setChecked(self._prev_exposure)
+                self.chk_shadows.setChecked(self._prev_shadows)
+                self.chk_highlights.setChecked(self._prev_highlights)
 
     def on_resize_toggled(self, checked):
         self.spin_resize.setEnabled(checked)
@@ -331,18 +352,29 @@ class SettingsDialog(QDialog):
         self.spin_quality.setEnabled(checked)
 
     def on_engine_changed(self, index):
-        """Habilita/desabilita as opções de edição conforme o motor escolhido."""
-        sem_edicao = (index == 0)  # índice 0 = "[ Sem edição ]"
+        """Define o que está disponível baseada na competência de cada motor."""
+        engine_name = self.combo_engine.itemText(index)
+        
+        # 1. Configura a disponibilidade dos grupos
+        if engine_name == "[ Sem edição ]":
+            self.grp_auto.setEnabled(False)
+            self.grp_props.setEnabled(False)
+        
+        elif engine_name == "ImageMagick":
+            self.grp_props.setEnabled(True)
+            self.grp_auto.setEnabled(True)
+            self.grp_auto.setTitle("Correção (ImageMagick: Apenas Full Auto)")
+            
+        elif engine_name in ["RawTherapee", "Darktable"]:
+            self.grp_props.setEnabled(True)
+            self.grp_auto.setEnabled(True)
+            self.grp_auto.setTitle("Correção de Imagem (Automático)")
 
-        # Se estiver sem edição, trava os grupos inteiros
-        self.grp_auto.setEnabled(not sem_edicao)
-        self.grp_props.setEnabled(not sem_edicao)
-
-        # Se reativar edição, reaplica as lógicas internas (Full Auto, resize, qualidade)
-        if not sem_edicao:
+        # 2. Força a atualização visual dos checkboxes chamando a lógica do toggle
+        # Isso garante que se mudarmos de RawTherapee para ImageMagick,
+        # os botões manuais sejam travados imediatamente.
+        if self.grp_auto.isEnabled():
             self.on_full_auto_toggled(self.chk_full_auto.isChecked())
-            self.on_resize_toggled(self.chk_resize.isChecked())
-            self.on_quality_toggled(self.chk_quality.isChecked())
 
 
     # --- PERSISTÊNCIA ---

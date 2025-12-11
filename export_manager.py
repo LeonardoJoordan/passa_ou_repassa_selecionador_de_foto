@@ -57,39 +57,40 @@ def _copy_simple(src, dst):
 
 def _process_imagemagick(src, dst, settings):
     """
-    Constrói e executa o comando do ImageMagick (magick / convert).
+    Constrói e executa o comando do ImageMagick.
+    Funcionalidades: Full Auto, Resize, Qualidade.
     """
-    # 1. Define o executável base dependendo do OS
-    # No Windows moderno é 'magick', no Linux geralmente é 'convert' ou 'magick'
     executable = "magick" if IS_WINDOWS else "convert"
-    
-    # 2. Inicia a lista de comandos
     cmd = [executable, src]
     
-    # --- APLICAR AJUSTES (IMPLEMENTAREMOS A LÓGICA DETALHADA DEPOIS) ---
-    # Por enquanto, é apenas um teste de passagem (pass-through)
+    # --- 1. FULL AUTO (Correção Geral) ---
+    if settings.get('full_auto'):
+        # O combo que validamos e funcionou
+        cmd.append("-auto-gamma")
+        cmd.extend(["-contrast-stretch", "0.1%x0.1%"])
+        cmd.extend(["-modulate", "100,110"])
+        cmd.extend(["-unsharp", "0x0.75+0.75+0.008"])
     
-    # Exemplo: Se tiver resize
+    # (Removemos o 'else' com os controles manuais que não funcionam bem)
+
+    # --- 2. REDIMENSIONAR ---
     if settings.get('use_resize') and settings.get('resize_value'):
         val = settings['resize_value']
-        cmd.extend(["-resize", f"{val}x{val}>"]) # '>' significa "só diminua, não aumente"
+        cmd.extend(["-resize", f"{val}x{val}>"]) 
 
-    # Define qualidade (para JPG)
+    # --- 3. QUALIDADE (JPG) ---
     if settings.get('use_quality'):
         val = settings['quality_value']
         cmd.extend(["-quality", str(val)])
 
-    # Define destino
     cmd.append(dst)
     
-    # 3. Executa
     try:
-        # shell=False é mais seguro e evita problemas de escape de strings
         subprocess.run(cmd, check=True, capture_output=True)
         return True
     except subprocess.CalledProcessError as e:
         print(f"Erro ImageMagick: {e.stderr.decode('utf-8', errors='ignore')}")
         return False
     except FileNotFoundError:
-        print(f"ERRO: ImageMagick não encontrado no sistema (comando '{executable}').")
+        print(f"ERRO: ImageMagick ({executable}) não encontrado.")
         return False
