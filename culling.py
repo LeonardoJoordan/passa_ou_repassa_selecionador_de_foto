@@ -2,6 +2,7 @@ import sys
 import os
 import shutil
 import numpy as np
+import export_manager
 from image_viewer import ZoomablePreview
 from selector import ImageSelector
 from collections import OrderedDict
@@ -12,7 +13,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QListWidget, QListWidg
                                QHBoxLayout, QProgressBar, QMessageBox, QLineEdit, QFrame, 
                                QAbstractItemView, QTextEdit)
 from PySide6.QtGui import QIcon, QPixmap, QImageReader, QColor, QPainter, QBrush, QFont
-from PySide6.QtCore import QSize, Qt, QThread, Signal, QRect, QEvent
+from PySide6.QtCore import QSize, Qt, QThread, Signal, QRect, QEvent, QSettings
 
 # Silencia os avisos de metadados do Qt (Logs Fofoqueiros)
 os.environ["QT_LOGGING_RULES"] = "qt.imageformats.tiff.warning=false"
@@ -64,34 +65,36 @@ class CopyWorker(QThread):
     progress_signal = Signal(str) # Envia texto para o log (ex: "Copiando 1/100")
     finished_signal = Signal(int) # Envia total copiado ao terminar
 
-    def __init__(self, items, dest_folder):
+    def __init__(self, items, dest_folder, settings):
         super().__init__()
         self.items = items # Dicionário {caminho: nota}
         self.dest_folder = dest_folder
+        self.settings = settings
 
     def run(self):
         total = len(self.items)
         count = 0
         try:
-            # Garante que a pasta existe
             if not os.path.exists(self.dest_folder):
                 os.makedirs(self.dest_folder)
 
             for i, (path, rating) in enumerate(self.items.items(), 1):
-                filename = os.path.basename(path)
-                dest_path = os.path.join(self.dest_folder, filename)
+                # --- ALTERAÇÃO AQUI ---
+                # Em vez de shutil.copy2, chamamos o gerente
+                success = export_manager.export_file(path, self.dest_folder, self.settings)
                 
-                # Copia preservando metadados (copy2)
-                shutil.copy2(path, dest_path)
-                
-                count += 1
-                # Envia atualização para o Log
-                self.progress_signal.emit(f"Copiado: {count}/{total} - {filename}")
+                if success:
+                    count += 1
+                    filename = os.path.basename(path)
+                    self.progress_signal.emit(f"Processado: {count}/{total} - {filename}")
+                else:
+                    self.progress_signal.emit(f"FALHA: {os.path.basename(path)}")
+                # ----------------------
             
             self.finished_signal.emit(count)
             
         except Exception as e:
-            self.progress_signal.emit(f"ERRO: {str(e)}")
+            self.progress_signal.emit(f"ERRO CRÍTICO: {str(e)}")
             self.finished_signal.emit(0)
 
 # --- APLICAÇÃO PRINCIPAL ---
@@ -669,12 +672,33 @@ class CullingApp(QMainWindow):
         
         # Bloqueia botão para não clicar 2x
         self.btn_export.setEnabled(False)
-        self.btn_export.setText("⏳ COPIANDO...")
-        self.log(f"🚀 Iniciando cópia para: {final_path}")
+        self.btn_export.setText("⏳ PROCESSANDO...")
+        self.log(f"🚀 Iniciando processamento para: {final_path}")
 
-        # Inicia Worker de Cópia
-        self.copy_thread = CopyWorker(selected_items, final_path)
-        self.copy_thread.progress_signal.connect(self.log) # Liga o sinal ao Log
+        # --- NOVA LÓGICA DE CAPTURA DE SETTINGS ---
+        qs = QSettings("LeonardoSoft", "SelecionadorFotos")
+        
+        # Mapeia o índice do combo box para nomes reais
+        engines = ["[ Sem edição ]", "RawTherapee", "Darktable", "ImageMagick"]
+        idx = qs.value("engine_index", 0, type=int)
+        engine_name = engines[idx] if 0 <= idx < len(engines) else "[ Sem edição ]"
+
+        settings_dict = {
+            "engine_name": engine_name,
+            "full_auto": qs.value("full_auto", False, type=bool),
+            "use_resize": qs.value("use_resize", False, type=bool),
+            "resize_value": qs.value("resize_value", 1920, type=int),
+            "use_quality": qs.value("use_quality", False, type=bool),
+            "quality_value": qs.value("quality_value", 75, type=int),
+            # Adicione outros campos conforme necessário (ex: exposição)
+        }
+        
+        self.log(f"⚙️ Motor Selecionado: {engine_name}")
+        # -------------------------------------------
+
+        # Passamos o dicionário para o Worker
+        self.copy_thread = CopyWorker(selected_items, final_path, settings_dict)
+        self.copy_thread.progress_signal.connect(self.log)
         self.copy_thread.finished_signal.connect(self.on_copy_finished)
         self.copy_thread.start()
 
