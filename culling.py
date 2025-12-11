@@ -6,6 +6,7 @@ from image_viewer import ZoomablePreview
 from selector import ImageSelector
 from collections import OrderedDict
 from image_loader import ImageLoaderWorker
+from settings_dialog import SettingsDialog
 from PySide6.QtWidgets import (QApplication, QMainWindow, QListWidget, QListWidgetItem, 
                                QVBoxLayout, QWidget, QLabel, QPushButton, QFileDialog, 
                                QHBoxLayout, QProgressBar, QMessageBox, QLineEdit, QFrame, 
@@ -155,8 +156,35 @@ class CullingApp(QMainWindow):
         self.input_source.setPlaceholderText("Caminho da origem...")
         self.input_source.setReadOnly(True)
         
+        # Container Horizontal para Botão Base + Configurações
+        dest_row_widget = QWidget()
+        dest_row_widget.setStyleSheet("background-color: transparent;")
+        dest_row_layout = QHBoxLayout(dest_row_widget)
+        dest_row_layout.setContentsMargins(0, 0, 0, 0)
+        dest_row_layout.setSpacing(5)
+
         self.btn_dest_base = QPushButton("📁 2. Pasta de Saída (Base)")
         self.estilizar_botao(self.btn_dest_base, "#7f8c8d")
+        
+        # --- NOVO BOTÃO ENGRENAGEM ---
+        self.btn_settings = QPushButton("⚙")
+        self.btn_settings.setFixedSize(30, 30) # Tamanho igual aos botões de filtro
+        self.btn_settings.setStyleSheet("""
+            QPushButton { 
+                background-color: #34495e; 
+                color: #bdc3c7; 
+                border: 1px solid #5d6d7e; 
+                border-radius: 4px; 
+                font-size: 16px;
+            }
+            QPushButton:hover { background-color: #2c3e50; color: white; }
+        """)
+        self.btn_settings.clicked.connect(self.open_settings_dialog)
+        
+        dest_row_layout.addWidget(self.btn_dest_base)
+        dest_row_layout.addWidget(self.btn_settings)
+        # -----------------------------
+
         self.input_dest_base = QLineEdit()
         self.input_dest_base.setPlaceholderText("Ex: C:/Meus Documentos")
         self.input_dest_base.setReadOnly(True)
@@ -176,7 +204,7 @@ class CullingApp(QMainWindow):
         # Adiciona widgets ao painel
         controls_layout.addWidget(self.btn_source)
         controls_layout.addWidget(self.input_source)
-        controls_layout.addWidget(self.btn_dest_base)
+        controls_layout.addWidget(dest_row_widget)
         controls_layout.addWidget(self.input_dest_base)
         
         # --- CAIXA DE LOG (NOVO) ---
@@ -660,6 +688,10 @@ class CullingApp(QMainWindow):
             self.log(f"✅ SUCESSO: {count} fotos copiadas.")
         else:
             self.log("❌ Falha ou nenhuma foto copiada.")
+
+    def open_settings_dialog(self):
+        dialog = SettingsDialog(self)
+        dialog.exec()
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
