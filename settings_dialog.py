@@ -186,6 +186,8 @@ class SettingsDialog(QDialog):
 
         self.combo_engine = QComboBox()
         self.combo_engine.addItems(["[ Sem edição ]", "RawTherapee", "Darktable", "ImageMagick"])
+        self.combo_engine.currentIndexChanged.connect(self.on_engine_changed)
+
 
         row_engine.addWidget(lbl_engine)
         row_engine.addStretch()
@@ -195,6 +197,7 @@ class SettingsDialog(QDialog):
 
         # 2. GRUPO: AJUSTES AUTOMÁTICOS
         grp_auto = QGroupBox("Correção de Imagem (Automático)")
+        self.grp_auto = grp_auto
         layout_auto = QVBoxLayout(grp_auto)
         layout_auto.setSpacing(8)
 
@@ -227,6 +230,7 @@ class SettingsDialog(QDialog):
 
         # 3. GRUPO: PROPRIEDADES DO ARQUIVO
         grp_props = QGroupBox("Exportação")
+        self.grp_props = grp_props
         layout_props = QVBoxLayout(grp_props)
         layout_props.setSpacing(10)
 
@@ -265,6 +269,8 @@ class SettingsDialog(QDialog):
         layout_props.addLayout(row_quality)
 
         main_layout.addWidget(grp_props)
+
+        self.on_engine_changed(self.combo_engine.currentIndex())
 
         # Espaço antes dos botões
         main_layout.addStretch()
@@ -323,6 +329,21 @@ class SettingsDialog(QDialog):
 
     def on_quality_toggled(self, checked):
         self.spin_quality.setEnabled(checked)
+
+    def on_engine_changed(self, index):
+        """Habilita/desabilita as opções de edição conforme o motor escolhido."""
+        sem_edicao = (index == 0)  # índice 0 = "[ Sem edição ]"
+
+        # Se estiver sem edição, trava os grupos inteiros
+        self.grp_auto.setEnabled(not sem_edicao)
+        self.grp_props.setEnabled(not sem_edicao)
+
+        # Se reativar edição, reaplica as lógicas internas (Full Auto, resize, qualidade)
+        if not sem_edicao:
+            self.on_full_auto_toggled(self.chk_full_auto.isChecked())
+            self.on_resize_toggled(self.chk_resize.isChecked())
+            self.on_quality_toggled(self.chk_quality.isChecked())
+
 
     # --- PERSISTÊNCIA ---
 
