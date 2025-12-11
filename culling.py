@@ -97,7 +97,7 @@ class CopyWorker(QThread):
 class CullingApp(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Passa ou Repassa - v3.1 Dark & Linear")
+        self.setWindowTitle("Selecionador de Fotos - v1.0")
         self.resize(1100, 750)
         self.setStyleSheet("background-color: #1e1e1e; color: #ecf0f1;") # Tema Base Escuro
         
