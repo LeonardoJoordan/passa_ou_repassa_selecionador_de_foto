@@ -49,6 +49,20 @@ class ImageLoaderWorker(QThread):
         self.condition.wakeOne()
         self.mutex.unlock()
 
+    def set_max_preview_size(self, size: QSize):
+        """Define o novo limite máximo de tamanho para o preview."""
+        self.mutex.lock()
+        # Se o tamanho não mudou, não faz nada
+        if self.preview_size == size:
+            self.mutex.unlock()
+            return
+
+        self.preview_size = size
+        # Dispara uma atualização para recarregar o preview atual, se necessário
+        self.needs_update = True
+        self.condition.wakeOne()
+        self.mutex.unlock()
+
     def stop(self):
         self.running = False
         self.condition.wakeOne()

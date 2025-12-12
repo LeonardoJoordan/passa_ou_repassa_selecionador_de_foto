@@ -1,10 +1,15 @@
 from PySide6.QtWidgets import QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QFrame, QPushButton
-from PySide6.QtCore import Qt, QRectF
+from PySide6.QtCore import Qt, QRectF, Signal, QObject
 from PySide6.QtGui import QPixmap, QPainter, QWheelEvent, QCursor
+
+class ZoomablePreviewSignals(QObject):
+    """Sinais para comunicar as mudanças de tamanho do viewport."""
+    max_size_changed = Signal(QRectF) # Usaremos QRectF inicialmente, mas ajustaremos no CullingApp.
 
 class ZoomablePreview(QGraphicsView):
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.signals = ZoomablePreviewSignals()
         self.scene = QGraphicsScene(self)
         self.setScene(self.scene)
         
@@ -93,20 +98,22 @@ class ZoomablePreview(QGraphicsView):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
+        
+        # 1. Manter o ajuste de visualização (se não estiver em zoom)
         if not self._is_zoomed and self.current_pixmap:
             self.fitInView(self.pixmap_item, Qt.KeepAspectRatio)
             
-        # --- 3. POSICIONAMENTO DINÂMICO ---
-        # Mantém os botões no canto inferior direito
+        # 2. Notificar a nova área disponível para o CullingApp
+        viewport_rect = self.viewport().rect()
+        self.signals.max_size_changed.emit(QRectF(viewport_rect))
+            
+        # 3. POSICIONAMENTO DINÂMICO dos botões de zoom (mantido)
         margin = 10
         btn_w = 30
         
-        # Posição X (Largura total - margem - tamanho do botão)
         x_pos = self.width() - btn_w - margin
-        
-        # Posição Y (Altura total - margem - tamanho do botão)
-        y_pos_plus = self.height() - btn_w - margin - 40 # Mais pra cima
-        y_pos_minus = self.height() - btn_w - margin     # Mais pra baixo
+        y_pos_plus = self.height() - btn_w - margin - 40 
+        y_pos_minus = self.height() - btn_w - margin     
         
         self.btn_plus.move(x_pos, y_pos_plus)
         self.btn_minus.move(x_pos, y_pos_minus)

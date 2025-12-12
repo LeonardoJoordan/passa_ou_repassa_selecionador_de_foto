@@ -2,16 +2,19 @@ import sys
 import os
 import shutil
 import numpy as np
+import export_manager
+import datetime
 from image_viewer import ZoomablePreview
 from selector import ImageSelector
 from collections import OrderedDict
 from image_loader import ImageLoaderWorker
+from settings_dialog import SettingsDialog
 from PySide6.QtWidgets import (QApplication, QMainWindow, QListWidget, QListWidgetItem, 
                                QVBoxLayout, QWidget, QLabel, QPushButton, QFileDialog, 
                                QHBoxLayout, QProgressBar, QMessageBox, QLineEdit, QFrame, 
                                QAbstractItemView, QTextEdit)
 from PySide6.QtGui import QIcon, QPixmap, QImageReader, QColor, QPainter, QBrush, QFont
-from PySide6.QtCore import QSize, Qt, QThread, Signal, QRect, QEvent
+from PySide6.QtCore import QSize, Qt, QThread, Signal, QRect, QEvent, QSettings
 
 # Silencia os avisos de metadados do Qt (Logs Fofoqueiros)
 os.environ["QT_LOGGING_RULES"] = "qt.imageformats.tiff.warning=false"
@@ -63,34 +66,36 @@ class CopyWorker(QThread):
     progress_signal = Signal(str) # Envia texto para o log (ex: "Copiando 1/100")
     finished_signal = Signal(int) # Envia total copiado ao terminar
 
-    def __init__(self, items, dest_folder):
+    def __init__(self, items, dest_folder, settings):
         super().__init__()
         self.items = items # Dicionário {caminho: nota}
         self.dest_folder = dest_folder
+        self.settings = settings
 
     def run(self):
         total = len(self.items)
         count = 0
         try:
-            # Garante que a pasta existe
             if not os.path.exists(self.dest_folder):
                 os.makedirs(self.dest_folder)
 
             for i, (path, rating) in enumerate(self.items.items(), 1):
-                filename = os.path.basename(path)
-                dest_path = os.path.join(self.dest_folder, filename)
+                # --- ALTERAÇÃO AQUI ---
+                # Em vez de shutil.copy2, chamamos o gerente
+                success = export_manager.export_file(path, self.dest_folder, self.settings)
                 
-                # Copia preservando metadados (copy2)
-                shutil.copy2(path, dest_path)
-                
-                count += 1
-                # Envia atualização para o Log
-                self.progress_signal.emit(f"Copiado: {count}/{total} - {filename}")
+                if success:
+                    count += 1
+                    filename = os.path.basename(path)
+                    self.progress_signal.emit(f"Processado: {count}/{total} - {filename}")
+                else:
+                    self.progress_signal.emit(f"FALHA: {os.path.basename(path)}")
+                # ----------------------
             
             self.finished_signal.emit(count)
             
         except Exception as e:
-            self.progress_signal.emit(f"ERRO: {str(e)}")
+            self.progress_signal.emit(f"ERRO CRÍTICO: {str(e)}")
             self.finished_signal.emit(0)
 
 # --- APLICAÇÃO PRINCIPAL ---
@@ -155,8 +160,35 @@ class CullingApp(QMainWindow):
         self.input_source.setPlaceholderText("Caminho da origem...")
         self.input_source.setReadOnly(True)
         
+        # Container Horizontal para Botão Base + Configurações
+        dest_row_widget = QWidget()
+        dest_row_widget.setStyleSheet("background-color: transparent;")
+        dest_row_layout = QHBoxLayout(dest_row_widget)
+        dest_row_layout.setContentsMargins(0, 0, 0, 0)
+        dest_row_layout.setSpacing(5)
+
         self.btn_dest_base = QPushButton("📁 2. Pasta de Saída (Base)")
         self.estilizar_botao(self.btn_dest_base, "#7f8c8d")
+        
+        # --- NOVO BOTÃO ENGRENAGEM ---
+        self.btn_settings = QPushButton("⚙")
+        self.btn_settings.setFixedSize(30, 30) # Tamanho igual aos botões de filtro
+        self.btn_settings.setStyleSheet("""
+            QPushButton { 
+                background-color: #34495e; 
+                color: #bdc3c7; 
+                border: 1px solid #5d6d7e; 
+                border-radius: 4px; 
+                font-size: 16px;
+            }
+            QPushButton:hover { background-color: #2c3e50; color: white; }
+        """)
+        self.btn_settings.clicked.connect(self.open_settings_dialog)
+        
+        dest_row_layout.addWidget(self.btn_dest_base)
+        dest_row_layout.addWidget(self.btn_settings)
+        # -----------------------------
+
         self.input_dest_base = QLineEdit()
         self.input_dest_base.setPlaceholderText("Ex: C:/Meus Documentos")
         self.input_dest_base.setReadOnly(True)
@@ -176,7 +208,7 @@ class CullingApp(QMainWindow):
         # Adiciona widgets ao painel
         controls_layout.addWidget(self.btn_source)
         controls_layout.addWidget(self.input_source)
-        controls_layout.addWidget(self.btn_dest_base)
+        controls_layout.addWidget(dest_row_widget)
         controls_layout.addWidget(self.input_dest_base)
         
         # --- CAIXA DE LOG (NOVO) ---
@@ -265,6 +297,7 @@ class CullingApp(QMainWindow):
         self.btn_dest_base.clicked.connect(self.select_dest_base)
         self.btn_export.clicked.connect(self.export_files)
         self.filmstrip.currentItemChanged.connect(self.on_selection_changed)
+        self.preview_frame.signals.max_size_changed.connect(self.handle_preview_resize)
 
         # Configuração do Novo Worker
         self.image_worker = ImageLoaderWorker()
@@ -300,12 +333,81 @@ class CullingApp(QMainWindow):
             QPushButton:hover {{ background-color: {cor}99; }} 
         """)
 
+    def handle_preview_resize(self, rect_f):
+        """
+        Recebe a área disponível do preview (QRectF) e notifica o worker 
+        sobre o novo tamanho máximo.
+        """
+        w = int(rect_f.width())
+        h = int(rect_f.height())
+
+        # 1. Aplicar o limite mínimo e máximo
+        # Limite Mínimo (Evita que recarregue se for minúsculo)
+        min_size = 400 
+        # Limite Máximo (Protege contra monitores 4K forçando a imagem total, 
+        # mantemos um teto razoável para preview)
+        max_size = 1920 
+
+        # O lado maior da área disponível é o novo limite
+        target_size = max(w, h) 
+
+        # Aplicar os limites (Clamping)
+        final_size = max(min_size, min(max_size, target_size))
+
+        new_preview_size = QSize(final_size, final_size)
+
+        # 2. Envia para o Worker
+        self.image_worker.set_max_preview_size(new_preview_size)
+
+        # 3. Log
+        self.log(f"🖼️ Preview adaptativo: Máx {final_size}x{final_size}px")
+
     def log(self, text):
         """Adiciona mensagem na caixa de log com scroll automático."""
         self.log_box.append(text)
         # Scroll para o final
         scrollbar = self.log_box.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())
+
+    def get_date_range_prefix(self, file_paths):
+        """
+        Calcula o intervalo de datas (Modified Time) dos arquivos e retorna 
+        o prefixo formatado: AA.MM.DD - ou AA.MM.DD~AA.MM.DD -.
+        """
+        if not file_paths:
+            return ""
+
+        min_timestamp = float('inf')
+        max_timestamp = float('-inf')
+
+        for path in file_paths:
+            try:
+                # Usamos o 'Modified Time' (mtime), que é o mais comum e confiável em todos os SOs.
+                mtime = os.path.getmtime(path)
+                min_timestamp = min(min_timestamp, mtime)
+                max_timestamp = max(max_timestamp, mtime)
+            except Exception:
+                # Se houver erro de leitura, ignoramos o arquivo na contagem de data
+                continue
+
+        if min_timestamp == float('inf'):
+            return "" # Não foi possível ler nenhuma data
+
+        # Converte timestamps para objetos datetime
+        date_min = datetime.datetime.fromtimestamp(min_timestamp)
+        date_max = datetime.datetime.fromtimestamp(max_timestamp)
+
+        # Formato base AA.MM.DD
+        start_date_str = date_min.strftime("%y.%m.%d")
+        
+        # 1. Verifica se houve mudança de data (Ano, Mês ou Dia)
+        if (date_min.year, date_min.month, date_min.day) == (date_max.year, date_max.month, date_max.day):
+            # A data é a mesma: prefixo simples
+            return f"{start_date_str} - "
+        else:
+            # A data é diferente: prefixo de intervalo (AA.MM.DD~AA.MM.DD)
+            end_date_str = date_max.strftime("%y.%m.%d")
+            return f"{start_date_str}~{end_date_str} - "
 
     # --- LÓGICA ---
 
@@ -620,15 +722,6 @@ class CullingApp(QMainWindow):
             selected_items = all_rated_items
 
         # 3. Validações Padrão
-        if not selected_items:
-            # Mensagem personalizada dependendo do contexto
-            if self.active_filters:
-                msg = "Nenhuma foto com essa classificação foi encontrada!"
-            else:
-                msg = "Nenhuma foto classificada para exportar!"
-            QMessageBox.warning(self, "Ops", msg)
-            return
-
         if not self.current_dest_base:
             QMessageBox.warning(self, "Ops", "Selecione a Pasta de Saída!")
             return
@@ -636,17 +729,62 @@ class CullingApp(QMainWindow):
         if not folder_name:
             QMessageBox.warning(self, "Ops", "Digite um nome para a pasta!")
             return
+            
+        # --- NOVO: LÓGICA DE DATAÇÃO POR ARQUIVOS SELECIONADOS ---
+        qs = QSettings("LeonardoSoft", "SelecionadorFotos")
+        use_auto_date = qs.value("auto_date", False, type=bool)
+
+        if use_auto_date:
+            # Captura APENAS os caminhos dos arquivos que serão exportados
+            file_paths_to_export = list(selected_items.keys())
+            
+            # Chama a função de cálculo do intervalo de datas
+            date_prefix = self.get_date_range_prefix(file_paths_to_export) 
+            
+            # Aplica o prefixo, se o cálculo retornar algo válido
+            if date_prefix:
+                folder_name = date_prefix + folder_name
+            else:
+                self.log("⚠️ Datação automática falhou (metadados indisponíveis). Usando nome limpo.")
+        # ---------------------------------------------------------
 
         final_path = os.path.join(self.current_dest_base, folder_name)
         
         # Bloqueia botão para não clicar 2x
         self.btn_export.setEnabled(False)
-        self.btn_export.setText("⏳ COPIANDO...")
-        self.log(f"🚀 Iniciando cópia para: {final_path}")
+        self.btn_export.setText("⏳ PROCESSANDO...")
+        self.log(f"🚀 Iniciando processamento para: {final_path}")
 
-        # Inicia Worker de Cópia
-        self.copy_thread = CopyWorker(selected_items, final_path)
-        self.copy_thread.progress_signal.connect(self.log) # Liga o sinal ao Log
+        # --- NOVA LÓGICA DE CAPTURA DE SETTINGS ---
+        # --- LÓGICA AUTOMÁTICA DE MOTOR ---
+        qs = QSettings("LeonardoSoft", "SelecionadorFotos")
+        
+        full_auto = qs.value("full_auto", False, type=bool)
+        use_resize = qs.value("use_resize", False, type=bool)
+        use_quality = qs.value("use_quality", False, type=bool)
+        
+        # DECISÃO: Se tiver QUALQUER ajuste ativado, usamos o ImageMagick.
+        # Caso contrário, usamos '[ Sem edição ]' para cópia rápida.
+        if full_auto or use_resize or use_quality:
+            engine_name = "ImageMagick"
+        else:
+            engine_name = "[ Sem edição ]"
+
+        settings_dict = {
+            "engine_name": engine_name,
+            "full_auto": full_auto,
+            "use_resize": use_resize,
+            "resize_value": qs.value("resize_value", 1920, type=int),
+            "use_quality": use_quality,
+            "quality_value": qs.value("quality_value", 75, type=int),
+        }
+        
+        self.log(f"⚙️ Modo de Exportação: {engine_name}")
+        # ----------------------------------
+
+        # Passamos o dicionário para o Worker
+        self.copy_thread = CopyWorker(selected_items, final_path, settings_dict)
+        self.copy_thread.progress_signal.connect(self.log)
         self.copy_thread.finished_signal.connect(self.on_copy_finished)
         self.copy_thread.start()
 
@@ -660,6 +798,10 @@ class CullingApp(QMainWindow):
             self.log(f"✅ SUCESSO: {count} fotos copiadas.")
         else:
             self.log("❌ Falha ou nenhuma foto copiada.")
+
+    def open_settings_dialog(self):
+        dialog = SettingsDialog(self)
+        dialog.exec()
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
