@@ -10,7 +10,7 @@ class SettingsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Configurações")
-        self.resize(480, 480)
+        self.resize(480, 350)
 
         # Estilo Dark Mode (mesmas cores, só refinando layout/curvas/tipografia)
         self.setStyleSheet("""
@@ -176,39 +176,26 @@ class SettingsDialog(QDialog):
         line.setFrameShape(QFrame.HLine)
         line.setFrameShadow(QFrame.Sunken)
         main_layout.addWidget(line)
-
-        # [REMOVIDO] SELEÇÃO DO MOTOR (Agora é automático)
-
-        # 2. GRUPO: AJUSTES AUTOMÁTICOS
-        # Definimos o título fixo, já que só existe um motor
-        grp_auto = QGroupBox("Correção de Imagem (ImageMagick)")
-        self.grp_auto = grp_auto
-        self.grp_auto.setEnabled(True) # Sempre ativo
         
-        layout_auto = QVBoxLayout(grp_auto)
-        layout_auto.setSpacing(8)
+        # --- SEÇÃO 1: DATAÇÃO DA PASTA ---
+        self.chk_auto_date = QCheckBox("Datação automática da pasta (AA.MM.DD - )")
+        main_layout.addWidget(self.chk_auto_date)
+        
+        line_2 = QFrame()
+        line_2.setObjectName("line") # Reusa o estilo claro e sólido
+        line_2.setFrameShape(QFrame.HLine)
+        line_2.setFrameShadow(QFrame.Sunken)
+        main_layout.addWidget(line_2)
 
-        # 2.1 Full Auto
-        self.chk_full_auto = QCheckBox("Correção automática")
-        layout_auto.addWidget(self.chk_full_auto)
+        # --- SEÇÃO 2: AJUSTES E CORREÇÕES (ImageMagick) ---
 
-        # 2.2 Itens Granulares (Visualmente presentes, mas desativados para o IM)
-        layout_subs = QHBoxLayout()
-        layout_subs.setContentsMargins(18, 0, 0, 0)        
+        # 1. Correção Automática
+        self.chk_full_auto = QCheckBox("Correção e ajustes automáticos de imagem")
+        main_layout.addWidget(self.chk_full_auto)
 
-        layout_auto.addLayout(layout_subs)
-
-        main_layout.addWidget(grp_auto)
-
-        # 3. GRUPO: PROPRIEDADES DO ARQUIVO
-        grp_props = QGroupBox("Exportação")
-        self.grp_props = grp_props
-        layout_props = QVBoxLayout(grp_props)
-        layout_props.setSpacing(10)
-
-        # 3.1 Redimensionar
+        # 2. Redimensionar
         row_resize = QHBoxLayout()
-        self.chk_resize = QCheckBox("Redimensionar (lado maior):")
+        self.chk_resize = QCheckBox("Redimensionar o lado maior do arquivo:")
         self.chk_resize.toggled.connect(self.on_resize_toggled)
 
         self.spin_resize = QSpinBox()
@@ -221,11 +208,11 @@ class SettingsDialog(QDialog):
         row_resize.addStretch()
         row_resize.addWidget(self.spin_resize)
 
-        layout_props.addLayout(row_resize)
+        main_layout.addLayout(row_resize)
 
-        # 3.2 Qualidade
+        # 3. Qualidade
         row_quality = QHBoxLayout()
-        self.chk_quality = QCheckBox("Definir qualidade:")
+        self.chk_quality = QCheckBox("Definir qualidade JPG/HEIC:")
         self.chk_quality.toggled.connect(self.on_quality_toggled)
 
         self.spin_quality = QSpinBox()
@@ -238,9 +225,13 @@ class SettingsDialog(QDialog):
         row_quality.addStretch()
         row_quality.addWidget(self.spin_quality)
 
-        layout_props.addLayout(row_quality)
-
-        main_layout.addWidget(grp_props)
+        main_layout.addLayout(row_quality)
+        
+        line_3 = QFrame()
+        line_3.setObjectName("line") # Reusa o estilo claro e sólido
+        line_3.setFrameShape(QFrame.HLine)
+        line_3.setFrameShadow(QFrame.Sunken)
+        main_layout.addWidget(line_3)
 
         # Espaço antes dos botões
         main_layout.addStretch()
@@ -276,30 +267,37 @@ class SettingsDialog(QDialog):
     # --- PERSISTÊNCIA ---
 
     def load_settings(self):
-        # 2. Auto
+        # 1. Datação Automática
+        is_auto_date = self.settings.value("auto_date", False, type=bool)
+        self.chk_auto_date.setChecked(is_auto_date)
+        
+        # 2. Auto Correção
         is_full_auto = self.settings.value("full_auto", False, type=bool)
         self.chk_full_auto.setChecked(is_full_auto)
         
-
-        # 3. Resize e 4. Qualidade (Mantém igual)
+        # 3. Resize
         has_resize = self.settings.value("use_resize", False, type=bool)
         self.chk_resize.setChecked(has_resize)
         self.spin_resize.setValue(self.settings.value("resize_value", 1920, type=int))
 
+        # 4. Qualidade
         has_quality = self.settings.value("use_quality", False, type=bool)
         self.chk_quality.setChecked(has_quality)
         self.spin_quality.setValue(self.settings.value("quality_value", 75, type=int))
         
 
     def save_and_close(self):
-        # 2. Auto
-        self.settings.setValue("full_auto", self.chk_full_auto.isChecked())
-        # Não salvamos exposure/shadows pois não são usados no IM
+        # 1. Datação Automática
+        self.settings.setValue("auto_date", self.chk_auto_date.isChecked())
         
-        # 3. Resize e 4. Qualidade (Mantém igual)
+        # 2. Auto Correção
+        self.settings.setValue("full_auto", self.chk_full_auto.isChecked())
+        
+        # 3. Resize
         self.settings.setValue("use_resize", self.chk_resize.isChecked())
         self.settings.setValue("resize_value", self.spin_resize.value())
 
+        # 4. Qualidade
         self.settings.setValue("use_quality", self.chk_quality.isChecked())
         self.settings.setValue("quality_value", self.spin_quality.value())
 

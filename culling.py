@@ -3,6 +3,7 @@ import os
 import shutil
 import numpy as np
 import export_manager
+import datetime
 from image_viewer import ZoomablePreview
 from selector import ImageSelector
 from collections import OrderedDict
@@ -296,6 +297,7 @@ class CullingApp(QMainWindow):
         self.btn_dest_base.clicked.connect(self.select_dest_base)
         self.btn_export.clicked.connect(self.export_files)
         self.filmstrip.currentItemChanged.connect(self.on_selection_changed)
+        self.preview_frame.signals.max_size_changed.connect(self.handle_preview_resize)
 
         # Configuração do Novo Worker
         self.image_worker = ImageLoaderWorker()
@@ -331,12 +333,81 @@ class CullingApp(QMainWindow):
             QPushButton:hover {{ background-color: {cor}99; }} 
         """)
 
+    def handle_preview_resize(self, rect_f):
+        """
+        Recebe a área disponível do preview (QRectF) e notifica o worker 
+        sobre o novo tamanho máximo.
+        """
+        w = int(rect_f.width())
+        h = int(rect_f.height())
+
+        # 1. Aplicar o limite mínimo e máximo
+        # Limite Mínimo (Evita que recarregue se for minúsculo)
+        min_size = 400 
+        # Limite Máximo (Protege contra monitores 4K forçando a imagem total, 
+        # mantemos um teto razoável para preview)
+        max_size = 1920 
+
+        # O lado maior da área disponível é o novo limite
+        target_size = max(w, h) 
+
+        # Aplicar os limites (Clamping)
+        final_size = max(min_size, min(max_size, target_size))
+
+        new_preview_size = QSize(final_size, final_size)
+
+        # 2. Envia para o Worker
+        self.image_worker.set_max_preview_size(new_preview_size)
+
+        # 3. Log
+        self.log(f"🖼️ Preview adaptativo: Máx {final_size}x{final_size}px")
+
     def log(self, text):
         """Adiciona mensagem na caixa de log com scroll automático."""
         self.log_box.append(text)
         # Scroll para o final
         scrollbar = self.log_box.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())
+
+    def get_date_range_prefix(self, file_paths):
+        """
+        Calcula o intervalo de datas (Modified Time) dos arquivos e retorna 
+        o prefixo formatado: AA.MM.DD - ou AA.MM.DD~AA.MM.DD -.
+        """
+        if not file_paths:
+            return ""
+
+        min_timestamp = float('inf')
+        max_timestamp = float('-inf')
+
+        for path in file_paths:
+            try:
+                # Usamos o 'Modified Time' (mtime), que é o mais comum e confiável em todos os SOs.
+                mtime = os.path.getmtime(path)
+                min_timestamp = min(min_timestamp, mtime)
+                max_timestamp = max(max_timestamp, mtime)
+            except Exception:
+                # Se houver erro de leitura, ignoramos o arquivo na contagem de data
+                continue
+
+        if min_timestamp == float('inf'):
+            return "" # Não foi possível ler nenhuma data
+
+        # Converte timestamps para objetos datetime
+        date_min = datetime.datetime.fromtimestamp(min_timestamp)
+        date_max = datetime.datetime.fromtimestamp(max_timestamp)
+
+        # Formato base AA.MM.DD
+        start_date_str = date_min.strftime("%y.%m.%d")
+        
+        # 1. Verifica se houve mudança de data (Ano, Mês ou Dia)
+        if (date_min.year, date_min.month, date_min.day) == (date_max.year, date_max.month, date_max.day):
+            # A data é a mesma: prefixo simples
+            return f"{start_date_str} - "
+        else:
+            # A data é diferente: prefixo de intervalo (AA.MM.DD~AA.MM.DD)
+            end_date_str = date_max.strftime("%y.%m.%d")
+            return f"{start_date_str}~{end_date_str} - "
 
     # --- LÓGICA ---
 
@@ -651,15 +722,6 @@ class CullingApp(QMainWindow):
             selected_items = all_rated_items
 
         # 3. Validações Padrão
-        if not selected_items:
-            # Mensagem personalizada dependendo do contexto
-            if self.active_filters:
-                msg = "Nenhuma foto com essa classificação foi encontrada!"
-            else:
-                msg = "Nenhuma foto classificada para exportar!"
-            QMessageBox.warning(self, "Ops", msg)
-            return
-
         if not self.current_dest_base:
             QMessageBox.warning(self, "Ops", "Selecione a Pasta de Saída!")
             return
@@ -667,6 +729,24 @@ class CullingApp(QMainWindow):
         if not folder_name:
             QMessageBox.warning(self, "Ops", "Digite um nome para a pasta!")
             return
+            
+        # --- NOVO: LÓGICA DE DATAÇÃO POR ARQUIVOS SELECIONADOS ---
+        qs = QSettings("LeonardoSoft", "SelecionadorFotos")
+        use_auto_date = qs.value("auto_date", False, type=bool)
+
+        if use_auto_date:
+            # Captura APENAS os caminhos dos arquivos que serão exportados
+            file_paths_to_export = list(selected_items.keys())
+            
+            # Chama a função de cálculo do intervalo de datas
+            date_prefix = self.get_date_range_prefix(file_paths_to_export) 
+            
+            # Aplica o prefixo, se o cálculo retornar algo válido
+            if date_prefix:
+                folder_name = date_prefix + folder_name
+            else:
+                self.log("⚠️ Datação automática falhou (metadados indisponíveis). Usando nome limpo.")
+        # ---------------------------------------------------------
 
         final_path = os.path.join(self.current_dest_base, folder_name)
         

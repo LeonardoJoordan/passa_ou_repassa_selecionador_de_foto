@@ -66,8 +66,18 @@ def _process_imagemagick(src, dst, settings):
 
     cmd.append(dst)
     
+    # Parâmetros de execução (aplica a flag no Windows para evitar o console piscando)
+    run_params = {}
+    if IS_WINDOWS:
+        # SW_HIDE = 0 | CREATE_NO_WINDOW = 0x08000000
+        # https://docs.microsoft.com/en-us/windows/win32/procthread/creation-flags
+        # Adiciona flag para evitar que a tela preta (console) apareça
+        CREATE_NO_WINDOW = 0x08000000
+        run_params['creationflags'] = CREATE_NO_WINDOW
+    
     try:
-        subprocess.run(cmd, check=True, capture_output=True)
+        # Executa o comando, aplicando as flags de criação (apenas no Windows)
+        subprocess.run(cmd, check=True, capture_output=True, **run_params)
         return True
     except subprocess.CalledProcessError as e:
         print(f"Erro ImageMagick: {e.stderr.decode('utf-8', errors='ignore')}")
